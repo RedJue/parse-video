@@ -14,7 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/wujunwei928/parse-video/parser"
-	"github.com/wujunwei928/parse-video/utils" // 添加 utils 包导入
 )
 
 type HttpResponse struct {
@@ -79,31 +78,8 @@ func main() {
 		c.JSON(200, jsonRes)
 	})
 
-	// 添加音视频合并路由
-	r.GET("/video/merge", func(c *gin.Context) {
-		videoURL := c.Query("video_url")
-		audioURL := c.Query("audio_url")
-
-		mergedPath, err := utils.MergeVideoAudio(videoURL, audioURL)
-		if err != nil {
-			c.JSON(http.StatusOK, HttpResponse{
-				Code: 201,
-				Msg:  "合并失败: " + err.Error(),
-			})
-			return
-		}
-
-		// 返回合并后的视频文件
-		c.File(mergedPath)
-		// 异步删除临时文件
-		go func() {
-			time.Sleep(time.Minute * 5)
-			os.Remove(mergedPath)
-		}()
-	})
-
 	srv := &http.Server{
-		Addr:    ":8080",
+		Addr:    ":7777",
 		Handler: r,
 	}
 
