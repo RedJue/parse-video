@@ -78,29 +78,55 @@ func main() {
 		c.JSON(200, jsonRes)
 	})
 
-	srv := &http.Server{
+	// 证书文件路径
+	certFile := "redjue.top_public.crt"
+	keyFile := "redjue.top.key"
+
+	// HTTP服务器配置
+	httpSrv := &http.Server{
 		Addr:    ":7777",
 		Handler: r,
 	}
 
+	// HTTPS服务器配置
+	httpsSrv := &http.Server{
+		Addr:    ":7778", // 使用HTTPS端口
+		Handler: r,
+	}
+
+	// 启动HTTP服务
 	go func() {
-		// 服务连接
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
+		log.Println("HTTP Server starting on :7777...")
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP listen error: %s\n", err)
+		}
+	}()
+
+	// 启动HTTPS服务，使用SSL证书
+	go func() {
+		log.Println("HTTPS Server starting on :7778...")
+		if err := httpsSrv.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTPS listen error: %s\n", err)
 		}
 	}()
 
 	// 等待中断信号以优雅地关闭服务器 (设置 5 秒的超时时间)
-	quit := make(chan os.Signal)
+	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
 	<-quit
-	log.Println("Shutdown Server ...")
+	log.Println("Shutdown Servers ...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatal("Server Shutdown:", err)
-	}
-	log.Println("Server exiting")
 
+	// 关闭两个服务器
+	if err := httpSrv.Shutdown(ctx); err != nil {
+		log.Fatal("HTTP Server Shutdown:", err)
+	}
+
+	if err := httpsSrv.Shutdown(ctx); err != nil {
+		log.Fatal("HTTPS Server Shutdown:", err)
+	}
+
+	log.Println("Servers exiting")
 }
