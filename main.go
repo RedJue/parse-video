@@ -106,9 +106,17 @@ func main() {
 			return
 		}
 
-		// 添加User-Agent头，避免被某些服务器拒绝
-		req.Header.Set("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1")
-		req.Header.Set("Referer", "") // 避免一些防盗链限制
+		// 转发原始请求的所有头部信息
+		for name, values := range c.Request.Header {
+			for _, value := range values {
+				req.Header.Add(name, value)
+			}
+		}
+
+		// 确保有User-Agent头，避免被某些服务器拒绝
+		if req.Header.Get("User-Agent") == "" {
+			req.Header.Set("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1")
+		}
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -121,7 +129,7 @@ func main() {
 		defer resp.Body.Close()
 
 		// 检查响应状态
-		if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode >= 400 {
 			c.JSON(http.StatusBadGateway, HttpResponse{
 				Code: 502,
 				Msg:  fmt.Sprintf("视频源服务器返回状态码: %d", resp.StatusCode),
@@ -129,18 +137,24 @@ func main() {
 			return
 		}
 
-		// 设置响应头，支持范围请求
-		c.Writer.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-		c.Writer.Header().Set("Content-Length", resp.Header.Get("Content-Length"))
-		c.Writer.Header().Set("Accept-Ranges", "bytes")
-		c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=video%d.mp4", time.Now().Unix()))
-
-		// 将视频流复制到响应
-		c.Status(http.StatusOK)
-		_, err = io.Copy(c.Writer, resp.Body)
-		if err != nil {
-			log.Printf("传输视频流时出错: %v", err)
+		// 转发所有响应头
+		for name, values := range resp.Header {
+			for _, value := range values {
+				c.Writer.Header().Add(name, value)
+			}
 		}
+
+		// 设置跨域头，确保在各种环境下都能正常工作
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "*")
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "*")
+
+		// 设置状态码
+		c.Status(resp.StatusCode)
+
+		// 直接转发响应体
+		io.Copy(c.Writer, resp.Body)
 	})
 
 	// 证书文件路径
