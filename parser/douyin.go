@@ -8,14 +8,99 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
 )
 
+// 预定义允许的抖音CDN域名列表
+var allowedDouyinDomains = []string{
+	"v93.douyinvod.com", "v5-che.douyinvod.com", "v6-qos-hourly.douyinvod.com", "v26-che.douyinvod.com",
+	"v6-cold.douyinvod.com", "v83-x.douyinvod.com", "v5-coldb.douyinvod.com", "v3-z.douyinvod.com",
+	"v1-x.douyinvod.com", "v6-ab-e1.douyinvod.com", "v5-abtest.douyinvod.com", "v9-che.douyinvod.com",
+	"v83-y.douyinvod.com", "v5-litea.douyinvod.com", "v3-che.douyinvod.com", "v29-cold.douyinvod.com",
+	"v5-lite.douyinvod.com", "v29-qos-control.douyinvod.com", "v5-gdgz.douyinvod.com", "v5-ttcp-a.douyinvod.com",
+	"v3-b.douyinvod.com", "v9-z-qos-control.douyinvod.com", "v9-x-qos-hourly.douyinvod.com", "v9-chc.douyinvod.com",
+	"v9-qos-hourly.douyinvod.com", "v5-ttcp-b.douyinvod.com", "v6-z-qos-control.douyinvod.com", "v5-dlyd.douyinvod.com",
+	"v5-coldy.douyinvod.com", "v3-c.douyinvod.com", "v5-jbwl.douyinvod.com", "v26-0015c002.douyinvod.com",
+	"v5-gdwy.douyinvod.com", "v3-d.douyinvod.com", "v3-p.douyinvod.com", "v5-gdhy.douyinvod.com",
+	"v26-cold.douyinvod.com", "v5-lite-a.douyinvod.com", "v5-i.douyinvod.com", "v5-g.douyinvod.com",
+	"v26-qos-daily.douyinvod.com", "v5-dash.douyinvod.com", "v5-h.douyinvod.com", "v5-f.douyinvod.com",
+	"v3-a.douyinvod.com", "v83.douyinvod.com", "v5-cold.douyinvod.com", "v3-y.douyinvod.com",
+	"v26-x.douyinvod.com", "v27-ipv6.douyinvod.com", "v9-ipv6.douyinvod.com", "v5-yacu.douyinvod.com",
+	"v29-ipv6.douyinvod.com", "v26-coldf.douyinvod.com", "v5.douyinvod.com", "v11.douyinvod.com",
+	"v6-z.douyinvod.com", "v1.douyinvod.com", "v9-y.douyinvod.com", "v9-z.douyinvod.com",
+	"v9.douyinvod.com", "v3-x.douyinvod.com", "v6-y.douyinvod.com", "v3-ipv6.douyinvod.com",
+	"v5-e.douyinvod.com", "v3.douyinvod.com", "v6-ipv6.douyinvod.com", "v9-x.douyinvod.com",
+	"v6-p.douyinvod.com", "v1-2p.douyinvod.com", "v1-p.douyinvod.com", "v1-ipv6.douyinvod.com",
+	"v24.douyinvod.com", "v1-dy.douyinvod.com", "v6.douyinvod.com", "v6-x.douyinvod.com",
+	"v26-ipv6.douyinvod.com", "v27.douyinvod.com", "v92.douyinvod.com", "v95.douyinvod.com",
+	"douyinvod.com", "v26.douyinvod.com", "v29.douyinvod.com",
+}
+
 type douYin struct{}
 
+// isValidDouyinUrl 检查URL是否包含允许的抖音域名
+func isValidDouyinUrl(videoUrl string) bool {
+	if videoUrl == "" {
+		return false
+	}
+
+	parsedUrl, err := url.Parse(videoUrl)
+	if err != nil {
+		return false
+	}
+
+	for _, domain := range allowedDouyinDomains {
+		if strings.Contains(parsedUrl.Host, domain) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (d douYin) parseVideoID(videoId string) (*VideoParseInfo, error) {
+	var videoInfo *VideoParseInfo
+	var err error
+	maxRetries := 30
+
+	// 尝试最多30次，直到获取到包含允许域名的视频链接
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		videoInfo, err = d.parseVideoIDOnce(videoId)
+		if err != nil {
+			// 如果解析出错，直接返回错误
+			return nil, err
+		}
+
+		// 如果是图集或者没有视频URL，不需要验证域名
+		if len(videoInfo.Images) > 0 || videoInfo.VideoUrl == "" {
+			return videoInfo, nil
+		}
+
+		// 检查视频URL是否包含允许的域名
+		if isValidDouyinUrl(videoInfo.VideoUrl) {
+			return videoInfo, nil
+		}
+
+		// 如果不是最后一次尝试，则休眠一小段时间后重试
+		if attempt < maxRetries {
+			// 增加随机性，避免被限制
+			time.Sleep(time.Duration(100+rand.Intn(200)) * time.Millisecond)
+		}
+	}
+
+	// 如果所有尝试都失败了，返回最后一次获取的结果和提示
+	if videoInfo != nil {
+		return videoInfo, fmt.Errorf("video URL does not contain any allowed domains after %d attempts", maxRetries)
+	}
+
+	return nil, errors.New("failed to get valid video URL after 30 attempts")
+}
+
+// parseVideoIDOnce 是原来的parseVideoID函数的实现，只尝试解析一次
+func (d douYin) parseVideoIDOnce(videoId string) (*VideoParseInfo, error) {
 	reqUrl := fmt.Sprintf("https://www.iesdouyin.com/share/video/%s", videoId)
 
 	client := resty.New()
