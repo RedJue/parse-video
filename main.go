@@ -241,7 +241,7 @@ func main() {
 	})
 
 	// 证书文件路径
-	certFile := "redjue.top_public.crt"
+	certFile := "full_chain_rsa.crt"
 	keyFile := "redjue.top.key"
 
 	// HTTP服务器配置
