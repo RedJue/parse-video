@@ -64,7 +64,7 @@ func isValidDouyinUrl(videoUrl string) bool {
 func (d douYin) parseVideoID(videoId string) (*VideoParseInfo, error) {
 	var videoInfo *VideoParseInfo
 	var err error
-	maxRetries := 30
+	maxRetries := 1000
 
 	// 尝试最多30次，直到获取到包含允许域名的视频链接
 	for attempt := 1; attempt <= maxRetries; attempt++ {
